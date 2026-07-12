@@ -213,10 +213,21 @@ set(AACENC_SRC
   libAACenc/src/spreading.h
   libAACenc/src/tns_func.h
   libAACenc/src/tonality.h
-  libAACenc/src/transform.h)
+  libAACenc/src/transform.h
+  libAACenc/src/usacenc_adapter.cpp
+  libAACenc/src/usacenc_adapter.h)
 
 set(ARITHCODING_SRC
   libArithCoding/src/ac_arith_coder.cpp)
+
+## xHE-AAC (MPEG-D USAC) encoder, vendored from ittiam-systems/libxaac
+## (Apache-2.0, see third_party/libxaac/NOTICE and LICENSE). Globbed rather
+## than listed by hand since it is a verbatim copy of upstream's
+## encoder/ + common/ (+ encoder/drc_src/) trees.
+file(GLOB USACENC_SRC
+  "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libxaac/encoder/*.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libxaac/encoder/drc_src/*.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libxaac/common/*.c")
 
 set(DRCDEC_SRC
   libDRCdec/src/FDK_drcDecLib.cpp
@@ -448,7 +459,8 @@ set(libfdk_aac_SOURCES
     ${MPEGTPDEC_SRC} ${MPEGTPENC_SRC}
     ${SACDEC_SRC} ${SACENC_SRC}
     ${SBRDEC_SRC} ${SBRENC_SRC}
-    ${PCMUTILS_SRC} ${FDK_SRC} ${SYS_SRC})
+    ${PCMUTILS_SRC} ${FDK_SRC} ${SYS_SRC}
+    ${USACENC_SRC})
 
 if(WIN32 AND BUILD_SHARED_LIBS)
   set(libfdk_aac_SOURCES ${libfdk_aac_SOURCES} fdk-aac.def)
@@ -479,7 +491,10 @@ target_include_directories(fdk-aac
     libMpegTPDec/include
     libMpegTPEnc/include
     libFDK/include
-    libPCMutils/include)
+    libPCMutils/include
+    third_party/libxaac/common
+    third_party/libxaac/encoder
+    third_party/libxaac/encoder/drc_src)
 
 ### Link math library if required
 target_link_libraries(fdk-aac PRIVATE $<$<BOOL:${HAVE_LIBM}>:m>)

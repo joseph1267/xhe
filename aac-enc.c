@@ -30,13 +30,18 @@
 #include "wavreader.h"
 
 void usage(const char* name) {
-	fprintf(stderr, "%s [-r bitrate] [-t aot] [-a afterburner] [-s sbr] [-v vbr] in.wav out.aac\n", name);
+	fprintf(stderr, "%s [-r bitrate] [-t aot] [-a afterburner] [-s sbr] [-v vbr] [-d drm_profile] in.wav out.aac\n", name);
 	fprintf(stderr, "Supported AOTs:\n");
 	fprintf(stderr, "\t2\tAAC-LC\n");
 	fprintf(stderr, "\t5\tHE-AAC\n");
 	fprintf(stderr, "\t29\tHE-AAC v2\n");
 	fprintf(stderr, "\t23\tAAC-LD\n");
 	fprintf(stderr, "\t39\tAAC-ELD\n");
+	fprintf(stderr, "\t42\tUSAC / xHE-AAC (mono or stereo input only)\n");
+	fprintf(stderr, "-d drm_profile: only applicable with -t 42. Applies a preset\n");
+	fprintf(stderr, "  typical for Digital Radio Mondiale (DRM) audio services,\n");
+	fprintf(stderr, "  overriding sample rate/bitrate (see AACENC_USAC_DRM_PROFILE\n");
+	fprintf(stderr, "  in aacenc_lib.h). 0=off (default), 1=low, 2=medium, 3=high.\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -53,10 +58,11 @@ int main(int argc, char *argv[]) {
 	int afterburner = 1;
 	int eld_sbr = 0;
 	int vbr = 0;
+	int drm_profile = 0;
 	HANDLE_AACENCODER handle;
 	CHANNEL_MODE mode;
 	AACENC_InfoStruct info = { 0 };
-	while ((ch = getopt(argc, argv, "r:t:a:s:v:")) != -1) {
+	while ((ch = getopt(argc, argv, "r:t:a:s:v:d:")) != -1) {
 		switch (ch) {
 		case 'r':
 			bitrate = atoi(optarg);
@@ -72,6 +78,9 @@ int main(int argc, char *argv[]) {
 			break;
 		case 'v':
 			vbr = atoi(optarg);
+			break;
+		case 'd':
+			drm_profile = atoi(optarg);
 			break;
 		case '?':
 		default:
@@ -125,6 +134,12 @@ int main(int argc, char *argv[]) {
 	if (aot == 39 && eld_sbr) {
 		if (aacEncoder_SetParam(handle, AACENC_SBR_MODE, 1) != AACENC_OK) {
 			fprintf(stderr, "Unable to set SBR mode for ELD\n");
+			return 1;
+		}
+	}
+	if (aot == 42 && drm_profile) {
+		if (aacEncoder_SetParam(handle, AACENC_USAC_DRM_PROFILE, drm_profile) != AACENC_OK) {
+			fprintf(stderr, "Unable to set the USAC DRM profile\n");
 			return 1;
 		}
 	}

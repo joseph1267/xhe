@@ -1518,6 +1518,31 @@ typedef enum {
                  an error occured. This paramerter allows overwriting or getting
                  the control status of this process. See ::AACENC_CTRLFLAGS. */
 
+  AACENC_USAC_DRM_PROFILE =
+      0x0700, /*!< Only applicable when ::AACENC_AOT is set to 42 (USAC /
+                 xHE-AAC). Applies a preset typical for Digital Radio
+                 Mondiale (DRM, ETSI ES 201 980) audio services, overriding
+                 sample rate/bitrate with DRM-appropriate defaults. See
+                 ::USACENC_DRM_PROFILE in usacenc_adapter.h.
+                   - 0: Off / generic USAC (default).
+                   - 1: Mono, ~12 kHz core, 64000 bps.
+                   - 2: ~24 kHz core, 64000 bps.
+                   - 3: ~24 kHz core, 96000 bps.
+                 NOTE: the vendored USAC encoder currently only supports
+                 64000/96000 bps operating points, which are much higher
+                 than bit rates typical DRM services use -- see
+                 usacenc_adapter.h for details. */
+
+  AACENC_USAC_CODEC_MODE =
+      0x0701, /*!< Only applicable when ::AACENC_AOT is set to 42 (USAC /
+                 xHE-AAC). Selects the USAC core coder mode. See
+                 ::USACENC_CODEC_MODE in usacenc_adapter.h.
+                   - 0: FD-only core (MDCT-based, no ACELP/TCX). Default.
+                   - 1: Switched FD/LPD core (generally preferable for
+                 speech-heavy content, e.g. DRM voice services; enables
+                 ACELP/TCX).
+                   - 2: TD-only (LPD) core. */
+
   AACENC_NONE = 0xFFFF /*!< ------ */
 
 } AACENC_PARAM;

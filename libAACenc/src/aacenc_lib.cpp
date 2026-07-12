@@ -133,6 +133,8 @@ amm-info@iis.fraunhofer.de
 
 #include "metadata_main.h"
 #include "mps_main.h"
+
+#include "usacenc_adapter.h"
 #include "sacenc_lib.h"
 
 #define SBL(fl) \
@@ -277,6 +279,18 @@ struct AACENCODER {
 
   /* Capability flags */
   UINT CAPF_tpEnc;
+
+  /* USAC / xHE-AAC. Non-NULL whenever audioObjectType == AOT_USAC; in that
+   * case the classic AAC/SBR/PS/transport modules above are bypassed and
+   * encoding is delegated to the vendored Ittiam USAC encoder. See
+   * usacenc_adapter.h. */
+  HANDLE_USAC_ENC_ADAPTER hUsacEnc;
+  USACENC_DRM_PROFILE usacDrmProfile;
+  USACENC_CODEC_MODE usacCodecMode;
+  INT_PCM *usacInputBuffer; /* Flat interleaved staging buffer for the USAC
+                               path (frameLength * nChannels samples). */
+  INT usacInputBufferSize;  /* Allocated size of usacInputBuffer, in samples.
+                              */
 };
 
 typedef struct {
@@ -1258,6 +1272,74 @@ static AACENC_ERROR aacEncInit(HANDLE_AACENCODER hAacEncoder, ULONG InitFlags,
   HANDLE_SBR_ENCODER *hSbrEncoder = &hAacEncoder->hEnvEnc;
   HANDLE_AACENC_CONFIG hAacConfig = &hAacEncoder->aacConfig;
 
+  /* USAC / xHE-AAC takes a completely different encoder pipeline (its own
+   * core coder, SBR and transport framing, all provided by the vendored
+   * Ittiam encoder) so it is handled independently of the classic
+   * AAC/SBR/PS/transport initialization below. */
+  if (config->userAOT == AOT_USAC) {
+    if (hAacEncoder->hUsacEnc != NULL) {
+      usacEncClose(&hAacEncoder->hUsacEnc);
+    }
+
+    USAC_ENC_PARAMS usacParams;
+    FDKmemclear(&usacParams, sizeof(usacParams));
+    usacParams.sampleRate = config->userSamplerate;
+    usacParams.bitRate = config->userBitrate;
+    usacParams.nChannels = config->nChannels;
+    usacParams.useAdts = (config->userTpType == TT_MP4_ADTS) ? 1 : 0;
+    usacParams.codecMode = hAacEncoder->usacCodecMode;
+    usacParams.drmProfile = hAacEncoder->usacDrmProfile;
+    /* userFramelength defaults to (UINT)-1 ("unset/auto"); usacEncOpen()
+     * treats 0 as "automatic" (1024). */
+    usacParams.frameLength = (config->userFramelength == (UINT)-1)
+                                  ? 0
+                                  : config->userFramelength;
+
+    AACENC_ERROR usacErr = usacEncOpen(&hAacEncoder->hUsacEnc, &usacParams);
+    if (usacErr != AACENC_OK) {
+      return usacErr;
+    }
+
+    INT usacFrameLength = 0, usacDelay = 0;
+    usacEncGetFrameLength(hAacEncoder->hUsacEnc, &usacFrameLength, &usacDelay);
+
+    hAacConfig->audioObjectType = AOT_USAC;
+    hAacConfig->sampleRate = usacParams.sampleRate;
+    hAacConfig->bitRate = usacParams.bitRate;
+    hAacConfig->nChannels = usacParams.nChannels;
+    hAacConfig->channelMode =
+        (usacParams.nChannels == 1) ? MODE_1 : MODE_2;
+    hAacConfig->framelength = usacFrameLength;
+
+    hAacEncoder->nDelay = usacDelay;
+    hAacEncoder->nDelayCore = usacDelay;
+    hAacEncoder->inputBufferOffset = 0;
+    hAacEncoder->nSamplesToRead = usacFrameLength * usacParams.nChannels;
+
+    if (hAacEncoder->usacInputBuffer == NULL ||
+        hAacEncoder->usacInputBufferSize < hAacEncoder->nSamplesToRead) {
+      if (hAacEncoder->usacInputBuffer != NULL) {
+        FDKfree(hAacEncoder->usacInputBuffer);
+      }
+      hAacEncoder->usacInputBuffer = (INT_PCM *)FDKcalloc(
+          hAacEncoder->nSamplesToRead, sizeof(INT_PCM));
+      if (hAacEncoder->usacInputBuffer == NULL) {
+        hAacEncoder->usacInputBufferSize = 0;
+        usacEncClose(&hAacEncoder->hUsacEnc);
+        return AACENC_MEMORY_ERROR;
+      }
+      hAacEncoder->usacInputBufferSize = hAacEncoder->nSamplesToRead;
+    }
+    FDKmemclear(hAacEncoder->usacInputBuffer,
+                sizeof(INT_PCM) * hAacEncoder->usacInputBufferSize);
+
+    return AACENC_OK;
+  } else if (hAacEncoder->hUsacEnc != NULL) {
+    /* Switching away from USAC to a classic AOT: release the USAC instance
+     * before falling through to the classic initialization path below. */
+    usacEncClose(&hAacEncoder->hUsacEnc);
+  }
+
   hAacEncoder->nZerosAppended = 0; /* count appended zeros */
 
   INT frameLength = hAacConfig->framelength;
@@ -1699,6 +1781,13 @@ AACENC_ERROR aacEncClose(HANDLE_AACENCODER *phAacEncoder) {
     if (hAacEncoder->hMpsEnc) {
       FDK_MpegsEnc_Close(&hAacEncoder->hMpsEnc);
     }
+    if (hAacEncoder->hUsacEnc) {
+      usacEncClose(&hAacEncoder->hUsacEnc);
+    }
+    if (hAacEncoder->usacInputBuffer != NULL) {
+      FDKfree(hAacEncoder->usacInputBuffer);
+      hAacEncoder->usacInputBuffer = NULL;
+    }
 
     Free_AacEncoder(phAacEncoder);
   }
@@ -1782,31 +1871,49 @@ AACENC_ERROR aacEncEncode(const HANDLE_AACENCODER hAacEncoder,
     INT newSamples =
         fixMax(0, fixMin(inargs->numInSamples, hAacEncoder->nSamplesToRead -
                                                    hAacEncoder->nSamplesRead));
-    INT_PCM *pIn =
-        hAacEncoder->inputBuffer +
-        hAacEncoder->inputBufferOffset / hAacEncoder->aacConfig.nChannels +
-        hAacEncoder->nSamplesRead / hAacEncoder->extParam.nChannels;
     newSamples -=
         (newSamples %
          hAacEncoder->extParam
              .nChannels); /* process multiple samples of input channels */
 
-    /* Copy new input samples to internal buffer */
-    if (inBufDesc->bufElSizes[idx] == (INT)sizeof(INT_PCM)) {
-      FDK_deinterleave((INT_PCM *)inBufDesc->bufs[idx], pIn,
-                       hAacEncoder->extParam.nChannels,
-                       newSamples / hAacEncoder->extParam.nChannels,
-                       hAacEncoder->inputBufferSizePerChannel);
-    } else if (inBufDesc->bufElSizes[idx] > (INT)sizeof(INT_PCM)) {
-      FDK_deinterleave((LONG *)inBufDesc->bufs[idx], pIn,
-                       hAacEncoder->extParam.nChannels,
-                       newSamples / hAacEncoder->extParam.nChannels,
-                       hAacEncoder->inputBufferSizePerChannel);
+    if (hAacEncoder->hUsacEnc != NULL) {
+      /* USAC path: keep the samples interleaved (channel-major) in a flat
+       * staging buffer, matching what the vendored Ittiam encoder expects,
+       * instead of FDK's classic per-channel-planar inputBuffer layout. */
+      INT_PCM *pIn = hAacEncoder->usacInputBuffer + hAacEncoder->nSamplesRead;
+      if (inBufDesc->bufElSizes[idx] == (INT)sizeof(INT_PCM)) {
+        FDK_deinterleave((INT_PCM *)inBufDesc->bufs[idx], pIn, 1, newSamples,
+                         newSamples);
+      } else if (inBufDesc->bufElSizes[idx] > (INT)sizeof(INT_PCM)) {
+        FDK_deinterleave((LONG *)inBufDesc->bufs[idx], pIn, 1, newSamples,
+                         newSamples);
+      } else {
+        FDK_deinterleave((SHORT *)inBufDesc->bufs[idx], pIn, 1, newSamples,
+                         newSamples);
+      }
     } else {
-      FDK_deinterleave((SHORT *)inBufDesc->bufs[idx], pIn,
-                       hAacEncoder->extParam.nChannels,
-                       newSamples / hAacEncoder->extParam.nChannels,
-                       hAacEncoder->inputBufferSizePerChannel);
+      INT_PCM *pIn =
+          hAacEncoder->inputBuffer +
+          hAacEncoder->inputBufferOffset / hAacEncoder->aacConfig.nChannels +
+          hAacEncoder->nSamplesRead / hAacEncoder->extParam.nChannels;
+
+      /* Copy new input samples to internal buffer */
+      if (inBufDesc->bufElSizes[idx] == (INT)sizeof(INT_PCM)) {
+        FDK_deinterleave((INT_PCM *)inBufDesc->bufs[idx], pIn,
+                         hAacEncoder->extParam.nChannels,
+                         newSamples / hAacEncoder->extParam.nChannels,
+                         hAacEncoder->inputBufferSizePerChannel);
+      } else if (inBufDesc->bufElSizes[idx] > (INT)sizeof(INT_PCM)) {
+        FDK_deinterleave((LONG *)inBufDesc->bufs[idx], pIn,
+                         hAacEncoder->extParam.nChannels,
+                         newSamples / hAacEncoder->extParam.nChannels,
+                         hAacEncoder->inputBufferSizePerChannel);
+      } else {
+        FDK_deinterleave((SHORT *)inBufDesc->bufs[idx], pIn,
+                         hAacEncoder->extParam.nChannels,
+                         newSamples / hAacEncoder->extParam.nChannels,
+                         hAacEncoder->inputBufferSizePerChannel);
+      }
     }
     hAacEncoder->nSamplesRead += newSamples;
 
@@ -1827,14 +1934,21 @@ AACENC_ERROR aacEncEncode(const HANDLE_AACENCODER hAacEncoder,
 
         /* clear out until end-of-buffer */
         if (nZeros) {
-          INT_PCM *pIn =
-              hAacEncoder->inputBuffer +
-              hAacEncoder->inputBufferOffset /
-                  hAacEncoder->aacConfig.nChannels +
-              hAacEncoder->nSamplesRead / hAacEncoder->extParam.nChannels;
-          for (i = 0; i < (int)hAacEncoder->extParam.nChannels; i++) {
-            FDKmemclear(pIn + i * hAacEncoder->inputBufferSizePerChannel,
-                        sizeof(INT_PCM) * nZeros);
+          if (hAacEncoder->hUsacEnc != NULL) {
+            INT_PCM *pIn =
+                hAacEncoder->usacInputBuffer + hAacEncoder->nSamplesRead;
+            FDKmemclear(pIn, sizeof(INT_PCM) * nZeros *
+                                  (int)hAacEncoder->extParam.nChannels);
+          } else {
+            INT_PCM *pIn =
+                hAacEncoder->inputBuffer +
+                hAacEncoder->inputBufferOffset /
+                    hAacEncoder->aacConfig.nChannels +
+                hAacEncoder->nSamplesRead / hAacEncoder->extParam.nChannels;
+            for (i = 0; i < (int)hAacEncoder->extParam.nChannels; i++) {
+              FDKmemclear(pIn + i * hAacEncoder->inputBufferSizePerChannel,
+                          sizeof(INT_PCM) * nZeros);
+            }
           }
           hAacEncoder->nZerosAppended += nZeros;
           hAacEncoder->nSamplesRead = hAacEncoder->nSamplesToRead;
@@ -1847,6 +1961,38 @@ AACENC_ERROR aacEncEncode(const HANDLE_AACENCODER hAacEncoder,
       goto bail; /* not enough samples in input buffer and no flushing enabled
                   */
     }
+  }
+
+  /*
+   * USAC / xHE-AAC encode path: bypass the classic metadata/MPS/SBR/AAC-core
+   * pipeline entirely and delegate the whole frame to the vendored Ittiam
+   * USAC encoder, which produces complete, self-contained access units
+   * (core coder + eSBR + arithmetic-coded spectral data already included).
+   */
+  if (hAacEncoder->hUsacEnc != NULL) {
+    if ((outBufDesc != NULL) && (outBufDesc->numBufs >= 1)) {
+      INT bsIdx = getBufDescIdx(outBufDesc, OUT_BITSTREAM_DATA);
+      if (bsIdx == -1) {
+        err = AACENC_ENCODE_ERROR;
+        goto bail;
+      }
+
+      INT usacOutBytes = 0;
+      AACENC_ERROR usacErr = usacEncEncodeFrame(
+          hAacEncoder->hUsacEnc, hAacEncoder->usacInputBuffer,
+          hAacEncoder->nSamplesToRead, (UCHAR *)outBufDesc->bufs[bsIdx],
+          outBufDesc->bufSizes[bsIdx], &usacOutBytes);
+      if (usacErr != AACENC_OK) {
+        err = usacErr;
+        goto bail;
+      }
+
+      outargs->numOutBytes = usacOutBytes;
+      outargs->bitResState = 0;
+    }
+
+    hAacEncoder->nSamplesRead -= hAacEncoder->nSamplesToRead;
+    goto bail;
   }
 
   /* init payload */
@@ -2148,6 +2294,10 @@ AACENC_ERROR aacEncoder_SetParam(const HANDLE_AACENCODER hAacEncoder,
               goto bail;
             }
             break;
+          case AOT_USAC:
+            /* USAC/xHE-AAC uses the vendored Ittiam encoder exclusively and
+             * does not depend on the classic AAC/SBR/PS encoder modules. */
+            break;
           default:
             err = AACENC_INVALID_CONFIG;
             goto bail;
@@ -2397,6 +2547,26 @@ AACENC_ERROR aacEncoder_SetParam(const HANDLE_AACENCODER hAacEncoder,
         hAacEncoder->InitFlags |= AACENC_INIT_CONFIG | AACENC_INIT_TRANSPORT;
       }
       break;
+    case AACENC_USAC_DRM_PROFILE:
+      if (value > USACENC_DRM_PROFILE_HIGH) {
+        err = AACENC_INVALID_CONFIG;
+        break;
+      }
+      if ((UINT)hAacEncoder->usacDrmProfile != value) {
+        hAacEncoder->usacDrmProfile = (USACENC_DRM_PROFILE)value;
+        hAacEncoder->InitFlags |= AACENC_INIT_CONFIG;
+      }
+      break;
+    case AACENC_USAC_CODEC_MODE:
+      if (value > USACENC_CODEC_MODE_TD_ONLY) {
+        err = AACENC_INVALID_CONFIG;
+        break;
+      }
+      if ((UINT)hAacEncoder->usacCodecMode != value) {
+        hAacEncoder->usacCodecMode = (USACENC_CODEC_MODE)value;
+        hAacEncoder->InitFlags |= AACENC_INIT_CONFIG;
+      }
+      break;
     default:
       err = AACENC_UNSUPPORTED_PARAMETER;
       break;
@@ -2507,6 +2677,12 @@ UINT aacEncoder_GetParam(const HANDLE_AACENCODER hAacEncoder,
                             .bitRate)); /* peak bitrate parameter is in use */
       }
       break;
+    case AACENC_USAC_DRM_PROFILE:
+      value = (UINT)hAacEncoder->usacDrmProfile;
+      break;
+    case AACENC_USAC_CODEC_MODE:
+      value = (UINT)hAacEncoder->usacCodecMode;
+      break;
 
     default:
       // err = MPS_INVALID_PARAMETER;
@@ -2538,6 +2714,16 @@ AACENC_ERROR aacEncInfo(const HANDLE_AACENCODER hAacEncoder,
       hAacEncoder->nSamplesToRead / hAacEncoder->extParam.nChannels;
   pInfo->nDelay = hAacEncoder->nDelay;
   pInfo->nDelayCore = hAacEncoder->nDelayCore;
+
+  if (hAacEncoder->hUsacEnc != NULL) {
+    /* USAC/xHE-AAC: the AudioSpecificConfig (UsacConfig) is embedded once at
+     * the start of the raw elementary stream produced by the first
+     * aacEncEncode() call rather than retrievable out-of-band here; out-of-
+     * band retrieval via confBuf/confSize is not yet wired up for this
+     * path. */
+    pInfo->confSize = 0;
+    goto bail;
+  }
 
   /* Get encoder configuration */
   if (aacEncGetConf(hAacEncoder, &pInfo->confSize, &pInfo->confBuf[0]) !=

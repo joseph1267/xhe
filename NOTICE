@@ -1,3 +1,19 @@
+Third-Party Modified Version of the Fraunhofer FDK AAC Codec Library for Android
+
+This is a modified version of the Fraunhofer FDK AAC Codec Library for
+Android (see below for the original license text, which is retained per its
+own terms). The modification, made 2026-07-12, adds an MPEG-D USAC /
+xHE-AAC encoder path (::AUDIO_OBJECT_TYPE 42) to libAACenc, implemented by
+vendoring the Ittiam Systems USAC encoder from
+https://github.com/ittiam-systems/libxaac (Apache License 2.0) into
+third_party/libxaac/ and bridging it to the existing FDK-AAC public API in
+libAACenc/src/usacenc_adapter.{h,cpp}. See third_party/libxaac/LICENSE and
+third_party/libxaac/NOTICE for the license and copyright notices covering
+that vendored component. No changes were made to the FDK AAC decoder or to
+the classic AAC/HE-AAC/HE-AACv2/AAC-LD/AAC-ELD encoder paths.
+
+------------------------------------------------------------------------
+
 Software License for The Fraunhofer FDK AAC Codec Library for Android
 
 © Copyright  1995 - 2018 Fraunhofer-Gesellschaft zur Förderung der angewandten

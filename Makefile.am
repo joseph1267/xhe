@@ -14,7 +14,10 @@ AM_CPPFLAGS = \
     -I$(top_srcdir)/libMpegTPEnc/include \
     -I$(top_srcdir)/libSYS/include \
     -I$(top_srcdir)/libFDK/include \
-    -I$(top_srcdir)/libPCMutils/include
+    -I$(top_srcdir)/libPCMutils/include \
+    -I$(top_srcdir)/third_party/libxaac/common \
+    -I$(top_srcdir)/third_party/libxaac/encoder \
+    -I$(top_srcdir)/third_party/libxaac/encoder/drc_src
 
 AM_CXXFLAGS = -fno-exceptions -fno-rtti
 libfdk_aac_la_LINK = $(LINK) $(libfdk_aac_la_LDFLAGS)
@@ -114,7 +117,152 @@ AACENC_SRC = \
     libAACenc/src/sf_estim.cpp \
     libAACenc/src/spreading.cpp \
     libAACenc/src/tonality.cpp \
-    libAACenc/src/transform.cpp
+    libAACenc/src/transform.cpp \
+    libAACenc/src/usacenc_adapter.cpp
+
+# xHE-AAC (MPEG-D USAC) encoder, vendored from ittiam-systems/libxaac
+# (Apache-2.0, see third_party/libxaac/NOTICE and LICENSE).
+USACENC_SRC = \
+    third_party/libxaac/encoder/iusace_acelp_enc.c \
+    third_party/libxaac/encoder/iusace_acelp_rom.c \
+    third_party/libxaac/encoder/iusace_acelp_tools.c \
+    third_party/libxaac/encoder/iusace_arith_enc.c \
+    third_party/libxaac/encoder/iusace_avq_enc.c \
+    third_party/libxaac/encoder/iusace_avq_rom.c \
+    third_party/libxaac/encoder/iusace_bitbuffer.c \
+    third_party/libxaac/encoder/iusace_block_switch.c \
+    third_party/libxaac/encoder/iusace_enc_fac.c \
+    third_party/libxaac/encoder/iusace_enc_main.c \
+    third_party/libxaac/encoder/iusace_esbr_inter_tes.c \
+    third_party/libxaac/encoder/iusace_esbr_pvc.c \
+    third_party/libxaac/encoder/iusace_esbr_pvc_rom.c \
+    third_party/libxaac/encoder/iusace_esbr_rom.c \
+    third_party/libxaac/encoder/iusace_fd_fac.c \
+    third_party/libxaac/encoder/iusace_fft.c \
+    third_party/libxaac/encoder/iusace_lpc.c \
+    third_party/libxaac/encoder/iusace_lpc_avq.c \
+    third_party/libxaac/encoder/iusace_lpd_enc.c \
+    third_party/libxaac/encoder/iusace_lpd_rom.c \
+    third_party/libxaac/encoder/iusace_lpd_utils.c \
+    third_party/libxaac/encoder/iusace_ms.c \
+    third_party/libxaac/encoder/iusace_psy_mod.c \
+    third_party/libxaac/encoder/iusace_psy_rom.c \
+    third_party/libxaac/encoder/iusace_psy_utils.c \
+    third_party/libxaac/encoder/iusace_rom.c \
+    third_party/libxaac/encoder/iusace_tcx_enc.c \
+    third_party/libxaac/encoder/iusace_tcx_mdct.c \
+    third_party/libxaac/encoder/iusace_tns_usac.c \
+    third_party/libxaac/encoder/iusace_windowing.c \
+    third_party/libxaac/encoder/iusace_write_bitstream.c \
+    third_party/libxaac/encoder/ixheaace_adjust_threshold.c \
+    third_party/libxaac/encoder/ixheaace_api.c \
+    third_party/libxaac/encoder/ixheaace_asc_write.c \
+    third_party/libxaac/encoder/ixheaace_basic_ops.c \
+    third_party/libxaac/encoder/ixheaace_bitbuffer.c \
+    third_party/libxaac/encoder/ixheaace_bitbuffer_hp.c \
+    third_party/libxaac/encoder/ixheaace_bits_count.c \
+    third_party/libxaac/encoder/ixheaace_block_switch.c \
+    third_party/libxaac/encoder/ixheaace_calc_ms_band_energy.c \
+    third_party/libxaac/encoder/ixheaace_channel_map.c \
+    third_party/libxaac/encoder/ixheaace_common_rom.c \
+    third_party/libxaac/encoder/ixheaace_cplx_pred.c \
+    third_party/libxaac/encoder/ixheaace_dynamic_bits.c \
+    third_party/libxaac/encoder/ixheaace_enc_init.c \
+    third_party/libxaac/encoder/ixheaace_enc_main.c \
+    third_party/libxaac/encoder/ixheaace_fd_enc.c \
+    third_party/libxaac/encoder/ixheaace_fd_mdct.c \
+    third_party/libxaac/encoder/ixheaace_fd_qc_adjthr.c \
+    third_party/libxaac/encoder/ixheaace_fd_qc_util.c \
+    third_party/libxaac/encoder/ixheaace_fd_quant.c \
+    third_party/libxaac/encoder/ixheaace_fft.c \
+    third_party/libxaac/encoder/ixheaace_group_data.c \
+    third_party/libxaac/encoder/ixheaace_huffman_rom.c \
+    third_party/libxaac/encoder/ixheaace_hybrid.c \
+    third_party/libxaac/encoder/ixheaace_hybrid_init.c \
+    third_party/libxaac/encoder/ixheaace_interface.c \
+    third_party/libxaac/encoder/ixheaace_loudness_measurement.c \
+    third_party/libxaac/encoder/ixheaace_mdct_480.c \
+    third_party/libxaac/encoder/ixheaace_mps_bitstream.c \
+    third_party/libxaac/encoder/ixheaace_mps_dct.c \
+    third_party/libxaac/encoder/ixheaace_mps_delay.c \
+    third_party/libxaac/encoder/ixheaace_mps_dmx_tdom_enh.c \
+    third_party/libxaac/encoder/ixheaace_mps_enc.c \
+    third_party/libxaac/encoder/ixheaace_mps_filter.c \
+    third_party/libxaac/encoder/ixheaace_mps_frame_windowing.c \
+    third_party/libxaac/encoder/ixheaace_mps_huff_tab.c \
+    third_party/libxaac/encoder/ixheaace_mps_hybrid_filter.c \
+    third_party/libxaac/encoder/ixheaace_mps_nlc_enc.c \
+    third_party/libxaac/encoder/ixheaace_mps_onset_detect.c \
+    third_party/libxaac/encoder/ixheaace_mps_param_extract.c \
+    third_party/libxaac/encoder/ixheaace_mps_polyphase.c \
+    third_party/libxaac/encoder/ixheaace_mps_qmf.c \
+    third_party/libxaac/encoder/ixheaace_mps_rom.c \
+    third_party/libxaac/encoder/ixheaace_mps_static_gain.c \
+    third_party/libxaac/encoder/ixheaace_mps_tools_rom.c \
+    third_party/libxaac/encoder/ixheaace_mps_tree.c \
+    third_party/libxaac/encoder/ixheaace_mps_vector_functions.c \
+    third_party/libxaac/encoder/ixheaace_ms_stereo.c \
+    third_party/libxaac/encoder/ixheaace_nf.c \
+    third_party/libxaac/encoder/ixheaace_ps_bitenc.c \
+    third_party/libxaac/encoder/ixheaace_ps_enc.c \
+    third_party/libxaac/encoder/ixheaace_ps_enc_init.c \
+    third_party/libxaac/encoder/ixheaace_psy_configuration.c \
+    third_party/libxaac/encoder/ixheaace_psy_mod.c \
+    third_party/libxaac/encoder/ixheaace_psy_utils.c \
+    third_party/libxaac/encoder/ixheaace_psy_utils_spreading.c \
+    third_party/libxaac/encoder/ixheaace_qc_main_hp.c \
+    third_party/libxaac/encoder/ixheaace_qc_util.c \
+    third_party/libxaac/encoder/ixheaace_quant.c \
+    third_party/libxaac/encoder/ixheaace_radix2_fft.c \
+    third_party/libxaac/encoder/ixheaace_resampler.c \
+    third_party/libxaac/encoder/ixheaace_resampler_init.c \
+    third_party/libxaac/encoder/ixheaace_rom.c \
+    third_party/libxaac/encoder/ixheaace_sbr_code_envelope.c \
+    third_party/libxaac/encoder/ixheaace_sbr_code_envelope_lp.c \
+    third_party/libxaac/encoder/ixheaace_sbr_crc.c \
+    third_party/libxaac/encoder/ixheaace_sbr_env_est.c \
+    third_party/libxaac/encoder/ixheaace_sbr_env_est_init.c \
+    third_party/libxaac/encoder/ixheaace_sbr_frame_info_gen.c \
+    third_party/libxaac/encoder/ixheaace_sbr_freq_scaling.c \
+    third_party/libxaac/encoder/ixheaace_sbr_hbe_dft_trans.c \
+    third_party/libxaac/encoder/ixheaace_sbr_hbe_fft_ifft_32x32.c \
+    third_party/libxaac/encoder/ixheaace_sbr_hbe_polyphase.c \
+    third_party/libxaac/encoder/ixheaace_sbr_hbe_trans.c \
+    third_party/libxaac/encoder/ixheaace_sbr_inv_filtering_estimation.c \
+    third_party/libxaac/encoder/ixheaace_sbr_main.c \
+    third_party/libxaac/encoder/ixheaace_sbr_misc.c \
+    third_party/libxaac/encoder/ixheaace_sbr_missing_harmonics_det.c \
+    third_party/libxaac/encoder/ixheaace_sbr_noise_floor_est.c \
+    third_party/libxaac/encoder/ixheaace_sbr_qmf_enc.c \
+    third_party/libxaac/encoder/ixheaace_sbr_qmf_enc_init.c \
+    third_party/libxaac/encoder/ixheaace_sbr_rom.c \
+    third_party/libxaac/encoder/ixheaace_sbr_ton_corr.c \
+    third_party/libxaac/encoder/ixheaace_sbr_ton_corr_hp.c \
+    third_party/libxaac/encoder/ixheaace_sbr_tran_det.c \
+    third_party/libxaac/encoder/ixheaace_sbr_tran_det_hp.c \
+    third_party/libxaac/encoder/ixheaace_sbr_write_bitstream.c \
+    third_party/libxaac/encoder/ixheaace_sf_estimation.c \
+    third_party/libxaac/encoder/ixheaace_signal_classifier.c \
+    third_party/libxaac/encoder/ixheaace_signal_classifier_rom.c \
+    third_party/libxaac/encoder/ixheaace_static_bits.c \
+    third_party/libxaac/encoder/ixheaace_stereo_preproc.c \
+    third_party/libxaac/encoder/ixheaace_tns.c \
+    third_party/libxaac/encoder/ixheaace_tns_hp.c \
+    third_party/libxaac/encoder/ixheaace_tns_init.c \
+    third_party/libxaac/encoder/ixheaace_tns_params.c \
+    third_party/libxaac/encoder/ixheaace_write_adts_adif.c \
+    third_party/libxaac/encoder/ixheaace_write_bitstream.c \
+    third_party/libxaac/encoder/drc_src/impd_drc_api.c \
+    third_party/libxaac/encoder/drc_src/impd_drc_enc.c \
+    third_party/libxaac/encoder/drc_src/impd_drc_gain_calculator.c \
+    third_party/libxaac/encoder/drc_src/impd_drc_gain_enc.c \
+    third_party/libxaac/encoder/drc_src/impd_drc_mux.c \
+    third_party/libxaac/encoder/drc_src/impd_drc_tables.c \
+    third_party/libxaac/encoder/drc_src/impd_drc_uni_drc_eq.c \
+    third_party/libxaac/encoder/drc_src/impd_drc_uni_drc_filter_bank.c \
+    third_party/libxaac/common/ixheaac_esbr_fft.c \
+    third_party/libxaac/common/ixheaac_esbr_rom.c \
+    third_party/libxaac/common/ixheaac_fft_ifft_32x32_rom.c
 
 ARITHCODING_SRC = \
     libArithCoding/src/ac_arith_coder.cpp
@@ -254,7 +402,8 @@ libfdk_aac_la_SOURCES = \
     $(MPEGTPDEC_SRC) $(MPEGTPENC_SRC) \
     $(SACDEC_SRC) $(SACENC_SRC) \
     $(SBRDEC_SRC) $(SBRENC_SRC) \
-    $(PCMUTILS_SRC) $(FDK_SRC) $(SYS_SRC)
+    $(PCMUTILS_SRC) $(FDK_SRC) $(SYS_SRC) \
+    $(USACENC_SRC)
 
 EXTRA_DIST = \
     $(top_srcdir)/CMakeLists.txt \
