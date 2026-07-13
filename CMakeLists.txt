@@ -278,12 +278,14 @@ set(MPEGTPENC_SRC
   libMpegTPEnc/src/tpenc_adif.cpp
   libMpegTPEnc/src/tpenc_adts.cpp
   libMpegTPEnc/src/tpenc_asc.cpp
+  libMpegTPEnc/src/tpenc_drm.cpp
   libMpegTPEnc/src/tpenc_latm.cpp
   libMpegTPEnc/src/tpenc_lib.cpp
   libMpegTPEnc/src/tp_version.h
   libMpegTPEnc/src/tpenc_adif.h
   libMpegTPEnc/src/tpenc_adts.h
   libMpegTPEnc/src/tpenc_asc.h
+  libMpegTPEnc/include/tpenc_drm.h
   libMpegTPEnc/src/tpenc_latm.h)
 
 set(PCMUTILS_SRC
@@ -597,4 +599,83 @@ if(BUILD_PROGRAMS)
 
   add_executable(test-encode-decode ${test_encode_decode_SOURCES})
   target_link_libraries(test-encode-decode PRIVATE fdk-aac)
+endif()
+
+# DRM xHE-AAC encoder module (libDRMxheEnc) — vendored libxaac integration.
+# See libDRMxheEnc/src/drm_xhe_enc_pool.h for the architecture.
+
+option(BUILD_DRM_XHE_ENC "Build the DRM xHE-AAC encoder module (libDRMxheEnc)" ON)
+
+if(BUILD_DRM_XHE_ENC)
+
+  ## Vendored libxaac sources: everything the vendored encoder tree ships...
+  file(GLOB DRMXHE_VENDOR_SRC
+    ${CMAKE_CURRENT_SOURCE_DIR}/libDRMxheEnc/src/libxaac_vendor/encoder/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/libDRMxheEnc/src/libxaac_vendor/encoder/drc_src/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/libDRMxheEnc/src/libxaac_vendor/common/*.c)
+
+  ## ...EXCEPT the native bit writer: iusace_bitbuffer.c is REPLACED by
+  ## drm_xhe_bitbuffer.cpp (see that file for the arithmetic-coder rollback
+  ## rationale). Compiling both would fail the link on duplicate symbols;
+  ## the guard below makes the exclusion loud if the vendor tree moves.
+  set(DRMXHE_EXCLUDED_BITBUFFER
+    ${CMAKE_CURRENT_SOURCE_DIR}/libDRMxheEnc/src/libxaac_vendor/encoder/iusace_bitbuffer.c)
+  list(FIND DRMXHE_VENDOR_SRC ${DRMXHE_EXCLUDED_BITBUFFER} DRMXHE_BITBUFFER_IDX)
+  if(DRMXHE_BITBUFFER_IDX EQUAL -1)
+    message(FATAL_ERROR
+      "libDRMxheEnc: vendored iusace_bitbuffer.c not found where expected; "
+      "verify the drop-in exclusion still matches the vendor tree layout.")
+  endif()
+  list(REMOVE_ITEM DRMXHE_VENDOR_SRC ${DRMXHE_EXCLUDED_BITBUFFER})
+
+  ## Vendored code is third-party: keep its warnings out of our build log.
+  if(MSVC)
+    set_source_files_properties(${DRMXHE_VENDOR_SRC} PROPERTIES COMPILE_OPTIONS "/w")
+  else()
+    set_source_files_properties(${DRMXHE_VENDOR_SRC} PROPERTIES COMPILE_OPTIONS "-w")
+  endif()
+
+  add_library(drm_xhe_enc STATIC
+    ${DRMXHE_VENDOR_SRC}
+    libDRMxheEnc/src/drm_xhe_bitbuffer.cpp
+    libDRMxheEnc/src/drm_xhe_enc.cpp
+    libDRMxheEnc/src/drm_xhe_enc_ram.cpp
+    libDRMxheEnc/src/drm_xhe_vendor_bridge.cpp
+    libDRMxheEnc/src/drm_xhe_vendor_sizes.cpp
+    libDRMxheEnc/include/drm_xhe_enc.h
+    libDRMxheEnc/src/drm_xhe_enc_pool.h
+    libDRMxheEnc/src/drm_xhe_enc_ram.h
+    libDRMxheEnc/src/drm_xhe_vendor_bridge.h)
+
+  target_include_directories(drm_xhe_enc
+    PUBLIC
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libDRMxheEnc/include>
+    PRIVATE
+      libDRMxheEnc/src
+      libDRMxheEnc/src/libxaac_vendor/common
+      libDRMxheEnc/src/libxaac_vendor/encoder
+      libDRMxheEnc/src/libxaac_vendor/encoder/drc_src
+      libSYS/include
+      libFDK/include
+      libAACenc/include)
+
+  target_link_libraries(drm_xhe_enc PUBLIC fdk-aac)
+  if(MSVC)
+    target_compile_options(drm_xhe_enc PRIVATE /EHsc)
+    target_compile_definitions(drm_xhe_enc PRIVATE _CRT_SECURE_NO_WARNINGS)
+  endif()
+
+  ## Round-trip test: PCM -> AU -> DRM super frame -> de-frame -> compare.
+  add_executable(drm-xhe-roundtrip
+    libDRMxheEnc/test/drm_xhe_roundtrip.cpp
+    wavreader.c
+    wavreader.h)
+  target_include_directories(drm-xhe-roundtrip PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    libMpegTPEnc/include
+    libFDK/include
+    libSYS/include)
+  target_link_libraries(drm-xhe-roundtrip PRIVATE drm_xhe_enc fdk-aac)
+  target_compile_definitions(drm-xhe-roundtrip PRIVATE $<$<BOOL:${MSVC}>:_CRT_SECURE_NO_WARNINGS>)
+
 endif()

@@ -164,6 +164,7 @@ MPEGTPENC_SRC = \
     libMpegTPEnc/src/tpenc_adif.cpp \
     libMpegTPEnc/src/tpenc_adts.cpp \
     libMpegTPEnc/src/tpenc_asc.cpp \
+    libMpegTPEnc/src/tpenc_drm.cpp \
     libMpegTPEnc/src/tpenc_latm.cpp \
     libMpegTPEnc/src/tpenc_lib.cpp
 
@@ -304,3 +305,166 @@ EXTRA_DIST = \
     $(top_srcdir)/tests/* \
     $(top_srcdir)/win32/*.h
 
+
+
+# DRM xHE-AAC encoder module (libDRMxheEnc) - vendored libxaac integration.
+# Built as a separate, non-installed archive: keeps the Apache-2.0 vendored
+# objects out of the installed libfdk-aac. NOTE: the vendored native bit
+# writer libDRMxheEnc/src/libxaac_vendor/encoder/iusace_bitbuffer.c is
+# deliberately ABSENT from this list - it is replaced by the drop-in
+# libDRMxheEnc/src/drm_xhe_bitbuffer.cpp (see that file for rationale);
+# listing both would fail the link with duplicate symbols.
+noinst_LTLIBRARIES = libdrmxheenc.la
+
+libdrmxheenc_la_CPPFLAGS = $(AM_CPPFLAGS) \
+    -I$(top_srcdir)/libDRMxheEnc/include \
+    -I$(top_srcdir)/libDRMxheEnc/src \
+    -I$(top_srcdir)/libDRMxheEnc/src/libxaac_vendor/common \
+    -I$(top_srcdir)/libDRMxheEnc/src/libxaac_vendor/encoder \
+    -I$(top_srcdir)/libDRMxheEnc/src/libxaac_vendor/encoder/drc_src
+
+libdrmxheenc_la_SOURCES = \
+    libDRMxheEnc/src/drm_xhe_bitbuffer.cpp \
+    libDRMxheEnc/src/drm_xhe_enc.cpp \
+    libDRMxheEnc/src/drm_xhe_enc_ram.cpp \
+    libDRMxheEnc/src/drm_xhe_vendor_bridge.cpp \
+    libDRMxheEnc/src/drm_xhe_vendor_sizes.cpp \
+    libDRMxheEnc/src/libxaac_vendor/common/ixheaac_esbr_fft.c \
+    libDRMxheEnc/src/libxaac_vendor/common/ixheaac_esbr_rom.c \
+    libDRMxheEnc/src/libxaac_vendor/common/ixheaac_fft_ifft_32x32_rom.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/drc_src/impd_drc_api.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/drc_src/impd_drc_enc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/drc_src/impd_drc_gain_calculator.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/drc_src/impd_drc_gain_enc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/drc_src/impd_drc_mux.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/drc_src/impd_drc_tables.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/drc_src/impd_drc_uni_drc_eq.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/drc_src/impd_drc_uni_drc_filter_bank.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_acelp_enc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_acelp_rom.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_acelp_tools.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_arith_enc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_avq_enc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_avq_rom.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_block_switch.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_enc_fac.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_enc_main.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_esbr_inter_tes.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_esbr_pvc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_esbr_pvc_rom.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_esbr_rom.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_fd_fac.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_fft.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_lpc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_lpc_avq.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_lpd_enc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_lpd_rom.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_lpd_utils.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_ms.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_psy_mod.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_psy_rom.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_psy_utils.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_rom.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_tcx_enc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_tcx_mdct.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_tns_usac.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_windowing.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/iusace_write_bitstream.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_adjust_threshold.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_api.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_asc_write.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_basic_ops.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_bitbuffer.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_bitbuffer_hp.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_bits_count.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_block_switch.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_calc_ms_band_energy.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_channel_map.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_common_rom.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_cplx_pred.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_dynamic_bits.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_enc_init.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_enc_main.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_fd_enc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_fd_mdct.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_fd_qc_adjthr.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_fd_qc_util.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_fd_quant.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_fft.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_group_data.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_huffman_rom.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_hybrid.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_hybrid_init.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_interface.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_loudness_measurement.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mdct_480.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_bitstream.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_dct.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_delay.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_dmx_tdom_enh.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_enc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_filter.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_frame_windowing.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_huff_tab.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_hybrid_filter.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_nlc_enc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_onset_detect.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_param_extract.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_polyphase.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_qmf.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_rom.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_static_gain.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_tools_rom.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_tree.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_mps_vector_functions.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_ms_stereo.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_nf.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_ps_bitenc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_ps_enc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_ps_enc_init.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_psy_configuration.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_psy_mod.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_psy_utils.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_psy_utils_spreading.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_qc_main_hp.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_qc_util.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_quant.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_radix2_fft.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_resampler.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_resampler_init.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_rom.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_code_envelope.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_code_envelope_lp.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_crc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_env_est.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_env_est_init.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_frame_info_gen.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_freq_scaling.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_hbe_dft_trans.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_hbe_fft_ifft_32x32.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_hbe_polyphase.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_hbe_trans.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_inv_filtering_estimation.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_main.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_misc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_missing_harmonics_det.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_noise_floor_est.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_qmf_enc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_qmf_enc_init.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_rom.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_ton_corr.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_ton_corr_hp.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_tran_det.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_tran_det_hp.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sbr_write_bitstream.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_sf_estimation.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_signal_classifier.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_signal_classifier_rom.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_static_bits.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_stereo_preproc.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_tns.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_tns_hp.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_tns_init.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_tns_params.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_write_adts_adif.c \
+    libDRMxheEnc/src/libxaac_vendor/encoder/ixheaace_write_bitstream.c
