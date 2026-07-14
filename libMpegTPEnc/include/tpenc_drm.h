@@ -34,11 +34,14 @@
    count, a receiver could not even locate the directory without a count
    somewhere. This writer therefore stores the super frame's frame-border
    COUNT in the field (the count-repetition reading); a receiver recovers
-   the directory size from the last 2 bytes of the frame. Caveat: a super
-   frame containing only the continuation of a straddling AU has zero
-   borders and no directory — such frames are not distinguishable by a
-   blind receiver under this layout and do not occur at the bit rates this
-   integration targets (AUs are much smaller than one super frame).
+   the directory size from the last 2 bytes of the frame. A super frame
+   containing only the continuation of a straddling AU has zero borders and
+   no directory (this genuinely occurs with 100 ms frames, where a transient
+   AU can exceed one frame's payload); receivers disambiguate by scanning
+   candidate counts k = 0..15 for the unique k whose count-repetition fields
+   AND header CRC (which covers the directory, and validates k = 0 against
+   the lone reserved byte) are consistent — see drmFindBorderCount() in
+   drm_xhe_dec_tool.cpp.
 
    All serialization goes through HANDLE_FDK_BITSTREAM (FDKwriteBits) and
    FDKcrc, per the integration's bitstream rule.

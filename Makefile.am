@@ -39,7 +39,9 @@ libfdk_aac_la_LDFLAGS = -version-info @FDK_AAC_VERSION@ -no-undefined \
     -export-symbols $(top_srcdir)/fdk-aac.sym
 
 if EXAMPLE
-bin_PROGRAMS = aac-enc$(EXEEXT)
+# NOTE: the drm-xhe-* tools link libFDK/libSYS internals; like the CMake
+# side they require a static libfdk-aac (configure with --disable-shared).
+bin_PROGRAMS = aac-enc$(EXEEXT) drm-xhe-enc$(EXEEXT) drm-xhe-dec$(EXEEXT)
 noinst_PROGRAMS = test-encode-decode$(EXEEXT)
 
 aac_enc_LDADD = libfdk-aac.la
@@ -48,7 +50,16 @@ aac_enc_SOURCES = aac-enc.c wavreader.c
 test_encode_decode_LDADD = libfdk-aac.la
 test_encode_decode_SOURCES = test-encode-decode.c wavreader.c sha1.c
 
-noinst_HEADERS = wavreader.h
+drm_xhe_enc_LDADD = libdrmxheenc.la libfdk-aac.la
+drm_xhe_enc_SOURCES = libDRMxheEnc/test/drm_xhe_enc_tool.cpp wavreader.c
+drm_xhe_enc_CPPFLAGS = $(AM_CPPFLAGS) \
+    -I$(top_srcdir)/libDRMxheEnc/include
+
+drm_xhe_dec_LDADD = libfdk-aac.la
+drm_xhe_dec_SOURCES = libDRMxheEnc/test/drm_xhe_dec_tool.cpp
+drm_xhe_dec_CPPFLAGS = $(AM_CPPFLAGS)
+
+noinst_HEADERS = wavreader.h libDRMxheEnc/test/drm_xhe_tool_common.h
 endif
 
 AACDEC_SRC = \

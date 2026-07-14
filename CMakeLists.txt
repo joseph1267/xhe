@@ -678,4 +678,33 @@ if(BUILD_DRM_XHE_ENC)
   target_link_libraries(drm-xhe-roundtrip PRIVATE drm_xhe_enc fdk-aac)
   target_compile_definitions(drm-xhe-roundtrip PRIVATE $<$<BOOL:${MSVC}>:_CRT_SECURE_NO_WARNINGS>)
 
+  ## Production CLI tools
+
+  ### drm-xhe-enc: WAV -> .drm super-frame stream + .m4a + .cfg
+  add_executable(drm-xhe-enc
+    libDRMxheEnc/test/drm_xhe_enc_tool.cpp
+    libDRMxheEnc/test/drm_xhe_tool_common.h
+    wavreader.c
+    wavreader.h)
+  target_include_directories(drm-xhe-enc PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    libMpegTPEnc/include
+    libFDK/include
+    libSYS/include)
+  target_link_libraries(drm-xhe-enc PRIVATE drm_xhe_enc fdk-aac)
+  target_compile_definitions(drm-xhe-enc PRIVATE $<$<BOOL:${MSVC}>:_CRT_SECURE_NO_WARNINGS>)
+
+  ### drm-xhe-dec: .drm (with .cfg) or .m4a -> WAV, format auto-detected
+  add_executable(drm-xhe-dec
+    libDRMxheEnc/test/drm_xhe_dec_tool.cpp
+    libDRMxheEnc/test/drm_xhe_tool_common.h)
+  target_include_directories(drm-xhe-dec PRIVATE
+    libMpegTPEnc/include
+    libFDK/include
+    libSYS/include)
+  target_link_libraries(drm-xhe-dec PRIVATE fdk-aac)
+  target_compile_definitions(drm-xhe-dec PRIVATE $<$<BOOL:${MSVC}>:_CRT_SECURE_NO_WARNINGS>)
+
+  install(TARGETS drm-xhe-enc drm-xhe-dec RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
 endif()
