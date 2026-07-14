@@ -1,15 +1,29 @@
 /* -----------------------------------------------------------------------------
-   DRM xHE-AAC round-trip test:
-     WAV PCM -> drmXheEnc (vendored libxaac engine, FDK memory)
-             -> access units in HANDLE_FDK_BITSTREAM
-             -> DRM audio super frames (tpenc_drm)
-             -> harness de-framer (mirrors tpenc_drm's documented layout,
-                with an INDEPENDENT bit-by-bit CRC-8 implementation)
-             -> byte-exact AU sequence comparison
-     plus an experimental decode attempt of the raw AUs with fdk-aac's own
-     decoder (TT_MP4_RAW + the config captured at encoder create time).
+   DRM xHE-AAC round-trip test and dual-output generator.
 
-   Exit code 0 iff the AU sequence survives framing/de-framing byte-exact.
+   One encode pass produces the two distinct decoding inputs:
+
+   1. <prefix>.drm — BROADCAST layer (hardware radio receivers):
+      continuous packet stream of fixed-size DRM audio super frames
+      (bitRate x superFrameMs / 8000 bytes each; 64000 bit/s x 400 ms / 8
+      = 3200 bytes). Each frame: 2-byte header [crc_8][reserved 0x00],
+      variable-length AU packet mapping (AUs straddle frame boundaries),
+      and the reverse tail directory growing backwards from the frame-size
+      mark (2-byte entries, 12-bit border index + 4-bit count field;
+      special indices 0xFFF/0xFFE = AU started at the end of the previous
+      frame). See tpenc_drm.h.
+
+   2. <prefix>.m4a — SOFTWARE layer (standard ISOBMFF decoders):
+      MP4 container, one audio track, sample entry 'mp4a' with an esds
+      DecoderSpecificInfo carrying the encoder's AudioSpecificConfig, which
+      escape-declares Audio Object Type 42 (USAC/xHE-AAC). Samples are the
+      pristine access units (no super-frame padding). The harness parses
+      the ASC's AOT bits and fails if they do not declare 42. Note:
+      playback requires a USAC-capable decoder (fdk-aac 2.x, ffmpeg >= 6).
+
+   Verification: harness de-framer (independent CRC-8) -> byte-exact AU
+   comparison -> receiver-side decode of the DE-FRAMED AUs with fdk-aac
+   (TT_MP4_RAW), written to <prefix>_decoded.wav.
    -------------------------------------------------------------------------- */
 
 #include <stdio.h>
@@ -89,6 +103,211 @@ static unsigned char crc8_drm(const unsigned char *data, unsigned int len) {
   return crc ^ 0xFF;
 }
 
+/* ------------------- minimal ISOBMFF (M4A) writer ------------------------- */
+
+static void be32(FILE *f, unsigned int v) {
+  UCHAR b[4] = {(UCHAR)(v >> 24), (UCHAR)(v >> 16), (UCHAR)(v >> 8), (UCHAR)v};
+  fwrite(b, 1, 4, f);
+}
+static void be16(FILE *f, unsigned int v) {
+  UCHAR b[2] = {(UCHAR)(v >> 8), (UCHAR)v};
+  fwrite(b, 1, 2, f);
+}
+static long boxBegin(FILE *f, const char *type) {
+  long pos = ftell(f);
+  be32(f, 0); /* size patched by boxEnd */
+  fwrite(type, 1, 4, f);
+  return pos;
+}
+static void boxEnd(FILE *f, long pos) {
+  long end = ftell(f);
+  fseek(f, pos, SEEK_SET);
+  be32(f, (unsigned int)(end - pos));
+  fseek(f, end, SEEK_SET);
+}
+static void fullBox(FILE *f, unsigned int versionFlags) { be32(f, versionFlags); }
+
+/*
+ * One-track M4A: ftyp, mdat (all AUs concatenated), moov with a single
+ * 'mp4a' sample entry whose esds DecoderSpecificInfo is the encoder's
+ * AudioSpecificConfig (escape-coded AOT 42). One chunk; per-sample sizes;
+ * constant sample duration frameDur at timescale sampleRate.
+ */
+static int writeM4a(const char *path, const UCHAR *asc, UINT ascLen, UCHAR **aus,
+                    const UINT *lens, UINT count, UINT sampleRate, UINT channels,
+                    UINT frameDur, UINT avgBitrate) {
+  FILE *f = fopen(path, "wb");
+  if (!f) return -1;
+
+  unsigned int duration = count * frameDur;
+  long b, b2, b3, b4, b5, b6;
+
+  /* ftyp */
+  b = boxBegin(f, "ftyp");
+  fwrite("M4A ", 1, 4, f);
+  be32(f, 0);
+  fwrite("M4A isommp42", 1, 12, f);
+  boxEnd(f, b);
+
+  /* mdat: all access units back to back; remember the first sample offset */
+  b = boxBegin(f, "mdat");
+  long firstSample = ftell(f);
+  for (UINT i = 0; i < count; i++) fwrite(aus[i], 1, lens[i], f);
+  boxEnd(f, b);
+
+  /* moov */
+  b = boxBegin(f, "moov");
+  {
+    long mvhd = boxBegin(f, "mvhd");
+    fullBox(f, 0);
+    be32(f, 0); be32(f, 0);            /* creation, modification */
+    be32(f, sampleRate);               /* timescale */
+    be32(f, duration);
+    be32(f, 0x00010000); be16(f, 0x0100); be16(f, 0); /* rate, volume, rsvd */
+    be32(f, 0); be32(f, 0);
+    be32(f, 0x00010000); be32(f, 0); be32(f, 0);      /* identity matrix */
+    be32(f, 0); be32(f, 0x00010000); be32(f, 0);
+    be32(f, 0); be32(f, 0); be32(f, 0x40000000);
+    for (int i = 0; i < 6; i++) be32(f, 0);           /* pre_defined */
+    be32(f, 2);                                        /* next_track_ID */
+    boxEnd(f, mvhd);
+
+    b2 = boxBegin(f, "trak");
+    {
+      long tkhd = boxBegin(f, "tkhd");
+      fullBox(f, 7); /* enabled | in movie | in preview */
+      be32(f, 0); be32(f, 0);
+      be32(f, 1);   /* track_ID */
+      be32(f, 0);
+      be32(f, duration);
+      be32(f, 0); be32(f, 0);
+      be16(f, 0); be16(f, 0); be16(f, 0x0100); be16(f, 0); /* volume */
+      be32(f, 0x00010000); be32(f, 0); be32(f, 0);
+      be32(f, 0); be32(f, 0x00010000); be32(f, 0);
+      be32(f, 0); be32(f, 0); be32(f, 0x40000000);
+      be32(f, 0); be32(f, 0); /* width, height */
+      boxEnd(f, tkhd);
+
+      b3 = boxBegin(f, "mdia");
+      {
+        long mdhd = boxBegin(f, "mdhd");
+        fullBox(f, 0);
+        be32(f, 0); be32(f, 0);
+        be32(f, sampleRate);
+        be32(f, duration);
+        be16(f, 0x55C4); be16(f, 0); /* language 'und' */
+        boxEnd(f, mdhd);
+
+        long hdlr = boxBegin(f, "hdlr");
+        fullBox(f, 0);
+        be32(f, 0);
+        fwrite("soun", 1, 4, f);
+        be32(f, 0); be32(f, 0); be32(f, 0);
+        fwrite("SoundHandler", 1, 13, f); /* incl. NUL */
+        boxEnd(f, hdlr);
+
+        b4 = boxBegin(f, "minf");
+        {
+          long smhd = boxBegin(f, "smhd");
+          fullBox(f, 0);
+          be32(f, 0);
+          boxEnd(f, smhd);
+
+          long dinf = boxBegin(f, "dinf");
+          long dref = boxBegin(f, "dref");
+          fullBox(f, 0);
+          be32(f, 1);
+          long url = boxBegin(f, "url ");
+          fullBox(f, 1); /* self-contained */
+          boxEnd(f, url);
+          boxEnd(f, dref);
+          boxEnd(f, dinf);
+
+          b5 = boxBegin(f, "stbl");
+          {
+            long stsd = boxBegin(f, "stsd");
+            fullBox(f, 0);
+            be32(f, 1);
+            b6 = boxBegin(f, "mp4a");
+            for (int i = 0; i < 6; i++) fputc(0, f); /* reserved */
+            be16(f, 1);                              /* data_reference_index */
+            be32(f, 0); be32(f, 0);                  /* reserved */
+            be16(f, channels);
+            be16(f, 16);                             /* samplesize */
+            be16(f, 0); be16(f, 0);
+            be32(f, sampleRate << 16);               /* 16.16 */
+            {
+              long esds = boxBegin(f, "esds");
+              fullBox(f, 0);
+              UINT dsiLen = ascLen;                  /* DecSpecificInfo payload */
+              UINT dcdLen = 13 + 2 + dsiLen;         /* DecoderConfigDescriptor */
+              UINT esLen = 3 + 2 + dcdLen + 3;       /* ES_Descriptor */
+              fputc(0x03, f); fputc((int)esLen, f);  /* ES_Descriptor */
+              be16(f, 0); fputc(0, f);               /* ES_ID, flags */
+              fputc(0x04, f); fputc((int)dcdLen, f); /* DecoderConfigDescriptor */
+              fputc(0x40, f);                        /* OTI: MPEG-4 Audio */
+              fputc(0x15, f);                        /* audio stream */
+              fputc(0, f); be16(f, 0);               /* bufferSizeDB (24 bit) */
+              be32(f, avgBitrate);                   /* maxBitrate */
+              be32(f, avgBitrate);                   /* avgBitrate */
+              fputc(0x05, f); fputc((int)dsiLen, f); /* DecSpecificInfo = ASC */
+              fwrite(asc, 1, ascLen, f);
+              fputc(0x06, f); fputc(1, f); fputc(0x02, f); /* SLConfig */
+              boxEnd(f, esds);
+            }
+            boxEnd(f, b6);
+            boxEnd(f, stsd);
+
+            long stts = boxBegin(f, "stts");
+            fullBox(f, 0);
+            be32(f, 1);
+            be32(f, count);
+            be32(f, frameDur);
+            boxEnd(f, stts);
+
+            long stsc = boxBegin(f, "stsc");
+            fullBox(f, 0);
+            be32(f, 1);
+            be32(f, 1); be32(f, count); be32(f, 1);
+            boxEnd(f, stsc);
+
+            long stsz = boxBegin(f, "stsz");
+            fullBox(f, 0);
+            be32(f, 0); /* per-sample sizes follow */
+            be32(f, count);
+            for (UINT i = 0; i < count; i++) be32(f, lens[i]);
+            boxEnd(f, stsz);
+
+            long stco = boxBegin(f, "stco");
+            fullBox(f, 0);
+            be32(f, 1);
+            be32(f, (unsigned int)firstSample);
+            boxEnd(f, stco);
+          }
+          boxEnd(f, b5);
+        }
+        boxEnd(f, b4);
+      }
+      boxEnd(f, b3);
+    }
+    boxEnd(f, b2);
+  }
+  boxEnd(f, b);
+
+  fclose(f);
+  return 0;
+}
+
+/* Parse the (possibly escape-coded) Audio Object Type from an ASC. */
+static UINT ascAot(const UCHAR *asc, UINT len) {
+  if (len < 2) return 0;
+  UINT aot = (UINT)(asc[0] >> 3);
+  if (aot == 31) {
+    aot = 32 + ((((UINT)asc[0] & 0x07) << 3) | ((UINT)asc[1] >> 5));
+  }
+  return aot;
+}
+
 int main(int argc, char *argv[]) {
   const char *wavPath = (argc > 1) ? argv[1] : "melo_ost_48k.wav";
   const char *outPrefix = (argc > 2) ? argv[2] : "drm_xhe_out";
@@ -135,8 +354,24 @@ int main(int argc, char *argv[]) {
 
   DRM_XHE_ENC_INFO info;
   drmXheEnc_GetInfo(hEnc, &info);
-  printf("encoder: frameLength=%u samples/ch, superFrame=%u bytes, config=%u bytes\n",
-         info.frameLength, info.superFrameBytes, info.audioConfigBytes);
+  printf("config: xHE-AAC (USAC) %u bit/s %s, eSBR 2:1, superFrameMs=%u\n", bitRate,
+         (channels == 1) ? "mono" : "stereo", superFrameMs);
+  printf("        -> DRM super frame = %u bit/s x %u ms / 8000 = %u bytes (fixed)\n",
+         bitRate, superFrameMs, info.superFrameBytes);
+  printf("encoder: frameLength=%u samples/ch, config=%u bytes\n", info.frameLength,
+         info.audioConfigBytes);
+
+  /* the ASC must escape-declare Audio Object Type 42 (USAC/xHE-AAC) —
+     this is what lets standard ISOBMFF decoders initialize instantly */
+  {
+    UINT aot = ascAot(info.audioConfig, info.audioConfigBytes);
+    printf("ASC: AudioSpecificConfig declares AOT %u %s\n", aot,
+           (aot == 42) ? "(USAC / xHE-AAC)" : "(UNEXPECTED - not USAC!)");
+    if (aot != 42) {
+      printf("FAIL: ASC does not declare AOT 42\n");
+      return 1;
+    }
+  }
 
   /* ---------------- super-frame writer ---------------- */
   DRM_SF_WRITER sfw;
@@ -202,16 +437,27 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  /* dump the encoded DRM super-frame stream */
+  /* --- output 1: broadcast layer — continuous DRM super-frame stream --- */
   snprintf(outPath, sizeof(outPath), "%s.drm", outPrefix);
   {
     FILE *f = fopen(outPath, "wb");
     if (f) {
       fwrite(sfStream, 1, sfBytesTotal, f);
       fclose(f);
-      printf("wrote: %s (%u bytes, %u super frames of %u bytes)\n", outPath, sfBytesTotal,
-             nSfTotal, info.superFrameBytes);
+      printf("wrote: %s (broadcast: %u x %u-byte super frames, %u bytes)\n", outPath,
+             nSfTotal, info.superFrameBytes, sfBytesTotal);
     }
+  }
+
+  /* --- output 2: software layer — ISOBMFF/M4A with AOT-42 esds --- */
+  snprintf(outPath, sizeof(outPath), "%s.m4a", outPrefix);
+  if (writeM4a(outPath, info.audioConfig, info.audioConfigBytes, auData, auLen, nAus,
+               (UINT)sampleRate, (UINT)channels, info.frameLength, bitRate) == 0) {
+    printf("wrote: %s (ISOBMFF: %u samples, mp4a/esds ASC declares AOT 42)\n", outPath,
+           nAus);
+  } else {
+    printf("FAIL: cannot write %s\n", outPath);
+    return 1;
   }
 
   /* dump the SDC audio-config source (ASC captured at create time), as
