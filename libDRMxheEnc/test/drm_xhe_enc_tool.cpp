@@ -462,26 +462,38 @@ int main(int argc, char *argv[]) {
 
   printf("done:   %u frames -> %u AUs, delay %u samples/ch\n", frames, nAus,
          info.nDelaySamples);
-
-  /* Effective-bitrate check: the vendored encoder clamps to its supported
-     USAC operating points instead of failing, so the AU stream may exceed
-     the requested channel rate — the super-frame stream then grows beyond
-     real-time channel capacity (structurally valid, not broadcastable). */
-  if (nAus > 0) {
-    double durationSec = (double)nAus * (double)info.frameLength / (double)sampleRate;
-    double effKbps = ((double)drmBytes * 8.0) / durationSec / 1000.0;
-    printf("rate:   requested %u kbit/s, effective %.1f kbit/s\n", kbps, effKbps);
-    if (effKbps > (double)kbps * 1.05) {
-      printf("WARNING: effective rate exceeds the requested channel rate — the\n"
-             "         vendored encoder clamped the bit rate to a supported USAC\n"
-             "         operating point; this stream will NOT fit a %u kbit/s DRM\n"
-             "         channel in real time.\n",
-             kbps);
-    }
-  }
   printf("wrote:  %s.drm (%u x %u-byte super frames, %u bytes)\n", outPrefix, nSfTotal,
          (bitRate * sfMs) / 8000, drmBytes);
   printf("wrote:  %s.m4a (%u samples), %s.cfg (%u bytes)\n", outPrefix, nAus, outPrefix,
          info.audioConfigBytes);
+
+  /* ---- size audit: where every byte of the .drm stream went ---- */
+  {
+    UINT headerBytes = 2 * sfw.statFrames;
+    UINT dirBytes = 2 * sfw.statBorders;
+    UINT total = headerBytes + dirBytes + sfw.statAuBytes + sfw.statPadBytes;
+    printf("audit:  %u super frames | AU payload %u B (%.2f%%) | headers %u B "
+           "(%.2f%%) | directory %u B / %u entries (%.2f%%) | padding %u B (%.2f%%)\n",
+           sfw.statFrames, sfw.statAuBytes, 100.0 * sfw.statAuBytes / total, headerBytes,
+           100.0 * headerBytes / total, dirBytes, sfw.statBorders,
+           100.0 * dirBytes / total, sfw.statPadBytes, 100.0 * sfw.statPadBytes / total);
+    if (total != drmBytes) {
+      printf("error: audit does not account for the stream (%u vs %u bytes)\n", total,
+             drmBytes);
+      return 1;
+    }
+
+    /* requested vs effective channel rate: the vendored encoder clamps to
+       [8 kbit/s x channels, ccfl-dependent max], so e.g. 12 kbit/s STEREO
+       becomes 16 kbit/s and the stream exceeds the 12 kbit/s channel */
+    if (nAus > 0) {
+      double durationSec = (double)nAus * (double)info.frameLength / (double)sampleRate;
+      double effKbps = ((double)drmBytes * 8.0) / durationSec / 1000.0;
+      printf("rate:   requested %u kbit/s, effective %.1f kbit/s%s\n", kbps, effKbps,
+             (effKbps > (double)kbps * 1.05)
+                 ? "  ** exceeds channel rate: not real-time transmittable **"
+                 : "");
+    }
+  }
   return 0;
 }

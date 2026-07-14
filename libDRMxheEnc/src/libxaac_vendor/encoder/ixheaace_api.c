@@ -669,9 +669,15 @@ static IA_ERRORCODE ixheaace_validate_config_params(ixheaace_input_config *pstr_
     if (pstr_input_config->harmonic_sbr != 1) {
       pstr_input_config->hq_esbr = 0;
     }
-    if (pstr_input_config->i_bitrate != 64000 && pstr_input_config->i_bitrate != 96000) {
-      pstr_input_config->i_bitrate = USAC_BITRATE_DEFAULT_VALUE;
-    }
+    /* DRM_XHE_VENDOR_PATCH: pass requested USAC bit rates through instead of
+       resetting everything except 64000/96000 to USAC_BITRATE_DEFAULT_VALUE
+       (96000) — DRM needs low-rate operation. The range guards directly
+       below still clamp to [MINIMUM_BITRATE * channels, ccfl-dependent max];
+       upstream documents only 64k/96k as validated operating points, so
+       other rates are best-effort (verified empirically by the integration's
+       round-trip tools). Original code:
+         if (i_bitrate != 64000 && i_bitrate != 96000)
+           i_bitrate = USAC_BITRATE_DEFAULT_VALUE;                          */
     {
       if (pstr_input_config->i_bitrate < MINIMUM_BITRATE * pstr_input_config->i_channels) {
         pstr_input_config->i_bitrate = MINIMUM_BITRATE * pstr_input_config->i_channels;

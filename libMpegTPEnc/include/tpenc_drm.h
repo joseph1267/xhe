@@ -90,6 +90,13 @@ typedef struct {
                                 that many bytes before the end of the super
                                 frame just emitted (TPENC_DRM_BORDER_PREV_*) */
   FDK_CRCINFO crcInfo;
+
+  /* stream accounting (size audit): every emitted frame satisfies
+     superFrameBytes = payload + padding + 2 (header) + 2*borders (directory) */
+  UINT statFrames;   /* super frames emitted */
+  UINT statBorders;  /* directory entries written (2 bytes each) */
+  UINT statAuBytes;  /* AU payload bytes carried */
+  UINT statPadBytes; /* zero padding (end-of-stream flush; 15-border case) */
 } DRM_SF_WRITER;
 
 /**

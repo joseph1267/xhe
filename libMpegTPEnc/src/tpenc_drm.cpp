@@ -65,6 +65,12 @@ static TPENC_DRM_ERROR drmSf_Emit(DRM_SF_WRITER *hSf, HANDLE_FDK_BITSTREAM hBsOu
 
   FDKsyncCache(hBsOut);
 
+  /* stream accounting: payloadBytes = AU data + zero padding */
+  hSf->statFrames++;
+  hSf->statBorders += hSf->borderCount;
+  hSf->statAuBytes += hSf->payloadFill;
+  hSf->statPadBytes += payloadBytes - hSf->payloadFill;
+
   /* start the next super frame */
   FDKmemclear(hSf->payload, sizeof(hSf->payload));
   hSf->payloadFill = 0;
